@@ -1,0 +1,9 @@
+{
+  "name": "sprint-report",
+  "version": "0.2.0",
+  "description": "Sprint demo report generated from your local Claude Code sessions (terminal, desktop app, IDE) and git history. Adds the /sprint-report skill.",
+  "author": {
+    "name": "Rajan Kumar Singh"
+  },
+  "keywords": ["sprint", "report", "demo", "git", "sessions"]
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "sprint-tools",
+  "description": "Engineering productivity plugins: sprint demo reports from Claude Code sessions.",
+  "owner": {
+    "name": "Rajan Kumar Singh"
+  },
+  "plugins": [
+    {
+      "name": "sprint-report",
+      "description": "Sprint demo report generated from your local Claude Code sessions and git history. Adds the /sprint-report skill.",
+      "author": { "name": "Rajan Kumar Singh" },
+      "category": "productivity",
+      "source": "./"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+# generated reports and the per-session summary cache (they contain transcript excerpts)
+reports/
+sprint-reports/
+__pycache__/
+*.pyc
+.DS_Store
