@@ -1,8 +1,9 @@
 """Thin wrapper around the local `claude` CLI in non-interactive mode, plus a JSON cache.
 
 Why the CLI and not the SDK: the CLI already holds the user's credentials (OAuth or key
-helper), so this tool never touches API keys. Every call is a fresh, tool-less, no-persistence
-`claude -p` with a replaced system prompt and (optionally) a JSON schema for structured output.
+helper), so this tool never touches API keys: _clean_env makes sure one can never reach the
+subprocess. Every call is a fresh, tool-less, no-persistence `claude -p` with a replaced system
+prompt and (optionally) a JSON schema for structured output.
 """
 from __future__ import annotations
 
@@ -20,12 +21,19 @@ class ClaudeError(RuntimeError):
 
 
 def _clean_env() -> Dict[str, str]:
-    """Drop the nested-session markers so `claude -p` runs happily from inside another session."""
+    """Drop the nested-session markers so `claude -p` runs happily from inside another session.
+
+    Also drop any inherited API key. The subprocess must authenticate as the Claude Code session
+    that launched it; a key exported in a shell profile outranks that login and fails every call
+    with a 401 as soon as it goes stale.
+    """
     env = dict(os.environ)
     for k in list(env):
         if k.startswith("CLAUDE_CODE_") or k in ("CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT",
                                                   "CLAUDE_AGENT_SDK_VERSION", "CLAUDE_PREVIEW_CLASSIFIER_FLOOR"):
             env.pop(k, None)
+    for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        env.pop(k, None)
     return env
 
 

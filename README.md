@@ -56,7 +56,8 @@ claude plugin install sprint-report@sprint-tools
 outside the repo except reports in `~/sprint-reports/`.
 
 Requirements: macOS or Linux, Python 3.9+ (standard library only), `git`, and the `claude` CLI
-logged in. The tool never handles API keys; it inherits whatever auth `claude` already has.
+logged in. The tool never handles API keys: it runs under your Claude Code login, and an
+`ANTHROPIC_API_KEY` in your shell is deliberately not passed through to it.
 
 ## What the report contains
 
