@@ -50,10 +50,13 @@ It refuses to overwrite anything it did not create, never uses `sudo`, and downl
 warns that `~/.local/bin` is not on your PATH, either add it to your `~/.zshrc` or just use the skill
 inside Claude Code, which does not need PATH.
 
-**Prefer not to install anything?** Use it as a plugin for one session instead:
+**Prefer not to install anything?** Point Claude Code at the folder, or even at the zip itself, for
+a single session. The `/sprint-report` skill is available in that session and nothing is written to
+your home directory:
 
 ```bash
-claude --plugin-dir ~/tools/sprint-report
+claude --plugin-dir ~/tools/sprint-report          # extracted folder
+claude --plugin-dir ~/Downloads/sprint-report-0.2.0.zip   # or the zip, unextracted
 ```
 
 ## 4. Use it

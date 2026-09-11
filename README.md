@@ -23,22 +23,32 @@ Inside any Claude Code session:
 Everything runs locally against your own `~/.claude` transcripts and your own `claude` login, so
 each teammate installs it once on their machine. Two ways:
 
-**A. As a Claude Code plugin** (recommended once this repo is pushed to Bitbucket/GitHub):
+**A. From the zip** (what teammates get today). Build it with `git archive --format=zip
+--prefix=sprint-report/ -o sprint-report-<version>.zip HEAD`, which packs tracked files only, so no
+reports or caches ride along. They unzip somewhere permanent and run the installer:
+
+```bash
+mkdir -p ~/tools && cd ~/tools && unzip ~/Downloads/sprint-report-0.2.0.zip && cd sprint-report
+./install.sh --dry-run     # optional: prints every command, changes nothing
+./install.sh
+```
+
+Or they skip installing and point Claude Code at the folder, or at the zip itself, for one session:
+
+```bash
+claude --plugin-dir ~/Downloads/sprint-report-0.2.0.zip
+```
+
+`INSTALL.md` in the zip is the teammate-facing version of all this. `install.sh` makes exactly two
+symlinks (`~/.local/bin/sprint-report` and `~/.claude/skills/sprint-report`), refuses to replace
+anything it did not create, never uses `sudo`, and downloads nothing; `./install.sh --uninstall`
+removes just those two links.
+
+**B. As a marketplace plugin**, once this repo is pushed to Bitbucket or GitHub:
 
 ```bash
 claude plugin marketplace add <git-url-of-this-repo>
 claude plugin install sprint-report@sprint-tools
-```
-
-That adds the `/sprint-report` skill to every Claude Code session. To run it from a shell as well,
-also do B, or call `python3 <plugin dir>/sprint_report.py` directly. To try the plugin from a local
-clone without installing: `claude --plugin-dir /path/to/sprint-report`.
-
-**B. From a clone**:
-
-```bash
-git clone <git-url-of-this-repo> ~/tools/sprint-report
-~/tools/sprint-report/install.sh
 ```
 
 `install.sh` symlinks a `sprint-report` command into `~/.local/bin` and the skill into
