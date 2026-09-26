@@ -5,3 +5,7 @@ __pycache__/
 *.pyc
 .DS_Store
 *.zip
+
+# HyperFrames skills (heygen-com/hyperframes) are pinned in skills-lock.json and
+# restored from upstream on install; the downloaded tree (fonts, audio, images) is not vendored.
+.claude/skills/

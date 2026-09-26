@@ -212,3 +212,12 @@ skills/sprint-report/SKILL.md  the /sprint-report skill (plugin and install.sh b
 .claude-plugin/                plugin.json + marketplace.json so `claude plugin install` works
 install.sh                     symlink installer for the command and the skill
 ```
+
+## HyperFrames skills (not yet wired into the plugin)
+
+`skills-lock.json` pins 21 video skills from
+[heygen-com/hyperframes](https://github.com/heygen-com/hyperframes) (source path
+and content hash for each). They are used locally from `.claude/skills/`, which is
+gitignored: the skills ship fonts, audio and images, so they are downloaded from
+upstream rather than committed. When they get added to the plugin, install them
+from the lock file instead of vendoring the files.
