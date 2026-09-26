@@ -563,7 +563,7 @@ def render_digest_text(d: SessionDigest, tz: dt.tzinfo, turns: Optional[List[Tur
     lines.append(f"- title: {d.title}")
     lines.append(f"- project directory: {d.cwd}  (short: {d.project})")
     lines.append(f"- git branches seen: {', '.join(d.git_branches) or '-'}")
-    lines.append(f"- launched from: {d.entrypoint}   claude version: {d.version or '?'}")
+    lines.append(f"- launched from: {d.entrypoint}   agent version: {d.version or '?'}")
     s = parse_ts(d.started_at)
     e = parse_ts(d.ended_at)
     lines.append(f"- in-window activity: {fmt_local(s, tz)} -> {fmt_local(e, tz)} local time; "

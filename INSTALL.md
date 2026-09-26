@@ -1,11 +1,11 @@
 # sprint-report — install guide
 
-You have a zip of a small tool that writes your sprint demo report for you. It reads the Claude Code
+You have a zip of a small tool that writes your sprint demo report for you. It reads Codex or Claude Code
 sessions already on your laptop, pairs them with your git commits, and produces a Markdown and HTML
 report with demo items, talking points and status per ticket.
 
-Everything runs on your own machine, under your own Claude Code login. Nothing is uploaded anywhere,
-and you never see or handle an API key.
+The command runs on your machine using your existing Codex or Claude login. Redacted
+digests go to the selected model service; you never need to handle an API key.
 
 ## 1. Before you start
 
@@ -14,7 +14,7 @@ You need:
 - **macOS or Linux**
 - **Python 3.9+** — `python3 --version` (macOS already has it)
 - **git**
-- **Claude Code, signed in** — `claude --version`
+- **Codex or Claude Code, signed in** — `codex --version` or `claude --version`
 
 ## 2. Unzip it somewhere permanent
 
@@ -22,7 +22,7 @@ Pick a folder you will not delete, for example `~/tools`. The installer makes li
 into this folder.
 
 ```bash
-mkdir -p ~/tools && cd ~/tools && unzip ~/Downloads/sprint-report-0.2.0.zip && cd sprint-report
+mkdir -p ~/tools && cd ~/tools && unzip ~/Downloads/sprint-report-0.3.0.zip && cd sprint-report
 ```
 
 ## 3. Install
@@ -38,6 +38,12 @@ Then install:
 ```bash
 ./install.sh
 ```
+
+On a Codex-only machine, run `./install.sh --cli-only`. This installs the command
+without creating a Claude skill. Run `sprint-report --since YYYY-MM-DD --source codex`.
+For use inside Codex, add the `codex/` folder as a marketplace with
+`codex plugin marketplace add /path/to/sprint-report/codex`, then install
+**Sprint Report** from the plugin browser.
 
 It creates exactly two symlinks in your home directory and nothing else:
 
@@ -56,7 +62,7 @@ your home directory:
 
 ```bash
 claude --plugin-dir ~/tools/sprint-report          # extracted folder
-claude --plugin-dir ~/Downloads/sprint-report-0.2.0.zip   # or the zip, unextracted
+claude --plugin-dir ~/Downloads/sprint-report-0.3.0.zip   # or the zip, unextracted
 ```
 
 ## 4. Use it
@@ -105,11 +111,11 @@ yourself: they contain excerpts of your own conversations. All of it is written 
 
 ## 6. What is sent where
 
-- Your session transcripts are read from `~/.claude/projects` and stay on your machine.
-- A **trimmed, redacted digest** of each session goes to Claude through your own `claude` CLI, the
-  same as any prompt you type. Command output and file contents are stripped out first, and strings
+- Session transcripts are read from `~/.claude/projects` or `~/.codex/sessions`.
+- A **trimmed, redacted digest** of each session goes to the selected model service through your own CLI.
+  Command output and file contents are stripped out first, and strings
   that look like keys, tokens, JWTs or passwords are replaced with `[REDACTED]` before sending.
-- Nothing is sent to any other service. The tool makes no network calls of its own.
+- The tool makes no network calls of its own. The CLI sends these digests for summarization.
 
 ## 7. Uninstall
 

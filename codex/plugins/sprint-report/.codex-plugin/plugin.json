@@ -1,0 +1,18 @@
+{
+  "name": "sprint-report",
+  "version": "0.3.0",
+  "description": "Generate a sprint demo report from local Codex or Claude sessions and git history.",
+  "author": {
+    "name": "Rajan Kumar Singh"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Sprint Report",
+    "shortDescription": "Turn local coding sessions into a sprint demo report.",
+    "longDescription": "Summarize local Codex or Claude sessions, correlate git work, and render Markdown and HTML reports. Requires the companion sprint-report CLI installed from this repository.",
+    "developerName": "Rajan Kumar Singh",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Create a sprint report from my Codex sessions since last Monday."
+  }
+}

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Build a sprint demo report from every local Claude Code session in a date window.
+"""Build a sprint demo report from local Codex or Claude Code sessions in a date window.
 
     ./sprint_report.py --since 2026-09-01                 # until today
     ./sprint_report.py --since 2026-09-01 --until 2026-09-12 --open
     ./sprint_report.py --since 2026-09-01 --no-llm        # collect only, no model calls
 
 Pipeline
-  1. collect   scan ~/.claude/projects/**.jsonl (terminal, desktop app and IDE sessions all live
-               there), keep messages inside the window, build a compact redacted digest per session
+  1. collect   scan local Codex and/or Claude Code JSONL files, keep messages inside
+               the window, build a compact redacted digest per session
   2. git       commits / branches / PRs by you in the repos those sessions touched
-  3. map       one `claude -p` call per session -> structured summary (cached on disk)
-  4. reduce    one `claude -p` call over everything -> sprint report JSON
+  3. map       one selected CLI call per session -> structured summary (cached on disk)
+  4. reduce    one selected CLI call over everything -> sprint report JSON
   5. render    Markdown + self-contained HTML (+ data.json with all inputs for auditing)
 """
 from __future__ import annotations
@@ -21,6 +21,7 @@ import getpass
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -34,8 +35,9 @@ sys.path.insert(0, HERE)
 from sprintreport import __version__  # noqa: E402
 from sprintreport.collect import (SessionDigest, Turn, collect_sessions, load_plans,  # noqa: E402
                                   render_digest_text)
+from sprintreport.codex_collect import collect_codex_sessions  # noqa: E402
 from sprintreport.gitwork import RepoWork, collect_git_work, render_git_text, resolve_repos  # noqa: E402
-from sprintreport.llm import ClaudeCLI, ClaudeError, JsonCache, stderr_log  # noqa: E402
+from sprintreport.llm import ClaudeCLI, CodexCLI, ClaudeError, JsonCache, stderr_log  # noqa: E402
 from sprintreport.prompts import (PROMPT_VERSION, SESSION_SCHEMA, SESSION_SYSTEM, SPRINT_SCHEMA,  # noqa: E402
                                   SPRINT_SYSTEM, session_prompt, sprint_prompt)
 from sprintreport.render import render_html, render_markdown  # noqa: E402
@@ -45,7 +47,8 @@ from sprintreport.util import (day_end_exclusive, day_start, fmt_local, human_mi
 MAX_MAP_CHARS = 90_000          # digest larger than this is split into parts for the map step
 EXPENSIVE_MODEL_MARKERS = ("opus", "fable", "mythos")
 ENTRY_LABEL = {"cli": "Terminal", "claude-desktop": "Desktop app", "claude-vscode": "VS Code",
-               "sdk-ts": "SDK", "sdk-py": "SDK"}
+               "sdk-ts": "SDK", "sdk-py": "SDK", "codex-vscode": "Codex desktop/IDE",
+               "codex-desktop": "Codex desktop", "codex-cli": "Codex CLI"}
 
 
 # ------------------------------------------------------------------ arguments
@@ -59,6 +62,12 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
                     help="output root (default: $SPRINT_REPORT_OUT or ~/sprint-reports)")
     ap.add_argument("--claude-dir", default=os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"),
                     help="Claude Code config dir holding projects/ (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
+    ap.add_argument("--codex-dir", default=os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex"),
+                    help="Codex config dir holding sessions/ (default: $CODEX_HOME or ~/.codex)")
+    ap.add_argument("--source", choices=["auto", "claude", "codex", "all"], default="auto",
+                    help="session source; auto uses available local stores (default: auto)")
+    ap.add_argument("--llm", choices=["auto", "claude", "codex"], default="auto",
+                    help="summarizer CLI; auto prefers Claude for Claude-only reports, Codex otherwise")
     ap.add_argument("--project", action="append", default=[], metavar="SUBSTR",
                     help="only sessions whose working directory contains SUBSTR (repeatable)")
     ap.add_argument("--exclude-project", action="append", default=[], metavar="SUBSTR",
@@ -73,14 +82,14 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     ap.add_argument("--author", default="", help="git author filter (default: each repo's user.email)")
     ap.add_argument("--name", default="", help="engineer display name (default: from git commits)")
     ap.add_argument("--title", default="", help="override the report title")
-    ap.add_argument("--map-model", default="haiku", help="model for per-session summaries (default: haiku)")
-    ap.add_argument("--reduce-model", default="sonnet", help="model for the final synthesis (default: sonnet)")
+    ap.add_argument("--map-model", default="", help="model for per-session summaries (default: haiku for Claude; Codex configured model)")
+    ap.add_argument("--reduce-model", default="", help="model for the final synthesis (default: sonnet for Claude; Codex configured model)")
     ap.add_argument("--map-effort", default="medium", choices=["low", "medium", "high", "xhigh", "max"])
     ap.add_argument("--reduce-effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
     ap.add_argument("--allow-expensive", action="store_true",
                     help="permit opus/fable-class models (refused by default to keep runs cheap)")
-    ap.add_argument("--parallel", type=int, default=4, help="concurrent claude calls in the map step (default 4)")
-    ap.add_argument("--timeout", type=int, default=900, help="seconds per claude call (default 900)")
+    ap.add_argument("--parallel", type=int, default=4, help="concurrent model calls in the map step (default 4)")
+    ap.add_argument("--timeout", type=int, default=900, help="seconds per model call (default 900)")
     ap.add_argument("--limit", type=int, default=0, help="summarize only the first N sessions (testing)")
     ap.add_argument("--min-prompts", type=int, default=1, help="ignore sessions with fewer human prompts")
     ap.add_argument("--no-subagents", action="store_true", help="do not read delegated sub-agent transcripts")
@@ -135,8 +144,8 @@ def merge_parts(parts: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def summarize_session(cli: ClaudeCLI, cache: JsonCache, d: SessionDigest, tz: dt.tzinfo, model: str,
-                      effort: str, refresh: bool) -> Tuple[Dict[str, Any], bool]:
-    fp = f"{d.fingerprint}|v{PROMPT_VERSION}|{model}|{effort}"
+                      effort: str, refresh: bool, provider: str) -> Tuple[Dict[str, Any], bool]:
+    fp = f"{d.fingerprint}|v{PROMPT_VERSION}|{provider}|{model}|{effort}"
     if not refresh:
         cached = cache.get(d.session_id, fp)
         if cached is not None:
@@ -230,7 +239,7 @@ def build_metrics(sessions: List[SessionDigest], trivial: int, repos: List[RepoW
     by_entry = Counter(ENTRY_LABEL.get(s.entrypoint, s.entrypoint) for s in sessions)
     m: List[Tuple[str, Any, str]] = [
         ("Sessions analysed", len(sessions), "card"),
-        ("Prompts to Claude", prompts, "card"),
+        ("Prompts to coding agents", prompts, "card"),
         ("Active time (approx.)", human_minutes(active), "card"),
         ("Commits", f"{len(real)}" + (f" +{len(commits) - len(real)} merges" if len(commits) > len(real) else ""), "card"),
         ("Tickets touched", len(tickets), "card"),
@@ -238,7 +247,7 @@ def build_metrics(sessions: List[SessionDigest], trivial: int, repos: List[RepoW
         ("Sessions by source", " · ".join(f"{k} {v}" for k, v in by_entry.most_common()), "row"),
         ("Trivial sessions skipped", trivial, "row"),
         ("Assistant messages / tool calls", f"{asst:,} / {tools:,}", "row"),
-        ("Files edited by Claude (distinct)", len(files), "row"),
+        ("Files edited by agents (distinct)", len(files), "row"),
         ("Sub-agent tasks delegated", subagents, "row"),
         ("Lines changed (non-merge commits)", f"+{ins:,} / −{dels:,} across {cfiles:,} file changes", "row"),
         ("Branches with commits", branches, "row"),
@@ -373,7 +382,20 @@ def main(argv: List[str]) -> int:
     tz = local_tz()
     if args.rerender:
         return rerender(args, log)
-    for m in (args.map_model, args.reduce_model):
+    has_claude = os.path.isdir(os.path.join(args.claude_dir, "projects"))
+    has_codex = os.path.isdir(os.path.join(args.codex_dir, "sessions"))
+    source = args.source
+    if source == "auto":
+        source = "all" if has_claude and has_codex else "claude" if has_claude else "codex"
+    if args.llm == "auto":
+        preferred = "claude" if source == "claude" else "codex"
+        other = "codex" if preferred == "claude" else "claude"
+        llm_name = preferred if shutil.which(preferred) or not shutil.which(other) else other
+    else:
+        llm_name = args.llm
+    args.map_model = args.map_model or ("haiku" if llm_name == "claude" else "")
+    args.reduce_model = args.reduce_model or ("sonnet" if llm_name == "claude" else "")
+    for m in ((args.map_model, args.reduce_model) if llm_name == "claude" else ()):
         if any(x in m.lower() for x in EXPENSIVE_MODEL_MARKERS) and not args.allow_expensive:
             print(f"error: {m!r} is an expensive model; defaults are haiku (per session) and sonnet (synthesis). "
                   "Pass --allow-expensive if you really want it.", file=sys.stderr)
@@ -392,22 +414,30 @@ def main(argv: List[str]) -> int:
         return 2
     since = day_start(since_d, tz)
     until = day_end_exclusive(until_d, tz)
-    run_dir = os.path.join(os.path.abspath(args.out), f"sprint_{since_d}_{until_d}")
+    suffix = "" if source == "claude" else f"_{source}"
+    run_dir = os.path.join(os.path.abspath(args.out), f"sprint_{since_d}_{until_d}{suffix}")
     os.makedirs(run_dir, mode=0o700, exist_ok=True)
     t0 = time.time()
 
     log(f"sprint-report {__version__} · window {since_d} → {until_d} ({tz}) · output {run_dir}")
-    log("[1/5] collecting Claude Code sessions ...")
-    sessions_all = collect_sessions(args.claude_dir, since, until, tz, include=args.project,
-                                    exclude=args.exclude_project, min_prompts=args.min_prompts,
-                                    include_subagents=not args.no_subagents, log=log)
+    log(f"[1/5] collecting {source} sessions ...")
+    sessions_all: List[SessionDigest] = []
+    if source in ("claude", "all"):
+        sessions_all.extend(collect_sessions(args.claude_dir, since, until, tz, include=args.project,
+                                             exclude=args.exclude_project, min_prompts=args.min_prompts,
+                                             include_subagents=not args.no_subagents, log=log))
+    if source in ("codex", "all"):
+        sessions_all.extend(collect_codex_sessions(args.codex_dir, since, until, tz, include=args.project,
+                                                   exclude=args.exclude_project, min_prompts=args.min_prompts,
+                                                   include_subagents=not args.no_subagents, log=log))
+    sessions_all.sort(key=lambda s: s.started_at or "")
     trivial = [s for s in sessions_all if s.is_trivial]
     sessions = [s for s in sessions_all if not s.is_trivial]
     if args.limit:
         sessions = sessions[:args.limit]
     log(f"  {len(sessions)} sessions with real work, {len(trivial)} trivial ones skipped")
     if not sessions:
-        print("No Claude Code sessions with activity in that window.", file=sys.stderr)
+        print(f"No {source} sessions with activity in that window.", file=sys.stderr)
         return 1
 
     log("[2/5] collecting git history ...")
@@ -424,7 +454,7 @@ def main(argv: List[str]) -> int:
             avail = [l.strip() for l in p.stdout.splitlines() if l.strip()][:10]
             print(f"  {rw.name} has: {', '.join(avail)}", file=sys.stderr)
         return 2
-    plans = load_plans(since, until, args.claude_dir)
+    plans = load_plans(since, until, args.claude_dir) if source in ("claude", "all") else []
     log(f"  {len(plans)} plan documents in window")
 
     # Ticket index across sessions and commits.
@@ -468,7 +498,7 @@ def main(argv: List[str]) -> int:
 
     summaries: Dict[str, Dict[str, Any]] = {}
     report: Dict[str, Any]
-    cli = ClaudeCLI(timeout=args.timeout, log=log)
+    cli = ClaudeCLI(timeout=args.timeout, log=log) if llm_name == "claude" else CodexCLI(timeout=args.timeout, log=log)
     if args.no_llm:
         log("[3/5] map step skipped (--no-llm)")
         log("[4/5] reduce step skipped (--no-llm)")
@@ -478,13 +508,13 @@ def main(argv: List[str]) -> int:
                                        "sessions, commits and metrics only.")
     else:
         if not cli.available():
-            print("error: `claude` CLI not found on PATH; install Claude Code or pass --no-llm", file=sys.stderr)
+            print(f"error: `{llm_name}` CLI not found on PATH; install it or pass --no-llm", file=sys.stderr)
             return 3
         cache = JsonCache(os.path.join(os.path.abspath(args.out), ".cache", "sessions"))
-        log(f"[3/5] summarizing {len(sessions)} sessions with {args.map_model} (parallel {args.parallel}) ...")
+        log(f"[3/5] summarizing {len(sessions)} sessions with {args.map_model or 'Codex default'} (parallel {args.parallel}) ...")
         done = 0
         with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
-            futs = {ex.submit(summarize_session, cli, cache, s, tz, args.map_model, args.map_effort, args.refresh): s
+            futs = {ex.submit(summarize_session, cli, cache, s, tz, args.map_model, args.map_effort, args.refresh, llm_name): s
                     for s in sessions}
             for fut in as_completed(futs):
                 s = futs[fut]
@@ -492,7 +522,7 @@ def main(argv: List[str]) -> int:
                 try:
                     summ, cached = fut.result()
                     summaries[s.session_id] = summ
-                    tag = "cached" if cached else f"{args.map_model}"
+                    tag = "cached" if cached else (args.map_model or "Codex")
                     log(f"  [{done:2d}/{len(sessions)}] {tag:7s} {s.title[:60]!r}"
                         + ("  (noise)" if summ.get("is_noise") else ""))
                 except ClaudeError as e:
@@ -500,7 +530,7 @@ def main(argv: List[str]) -> int:
         if not summaries:
             print("error: every per-session summary failed; see messages above", file=sys.stderr)
             return 4
-        log(f"[4/5] synthesizing the sprint report with {args.reduce_model} ...")
+        log(f"[4/5] synthesizing the sprint report with {args.reduce_model or 'Codex default'} ...")
         context = build_context_text(since_d, until_d, tz, engineer, metrics, daily, repos, plans, sessions,
                                      summaries, ticket_index)
         with open(os.path.join(run_dir, "synthesis_input.txt"), "w", encoding="utf-8") as fh:
@@ -534,7 +564,7 @@ def main(argv: List[str]) -> int:
             "active": human_minutes(s.active_minutes),
             "status": (summaries.get(s.session_id) or {}).get("status") or "n/a",
         } for s in sessions],
-        "llm": {"map_model": args.map_model, "reduce_model": args.reduce_model, "calls": cli.total_calls,
+        "llm": {"provider": llm_name, "map_model": args.map_model or "Codex default", "reduce_model": args.reduce_model or "Codex default", "calls": cli.total_calls,
                 "cost_usd": round(cli.total_cost_usd, 4)},
     }
     md_path, html_path = write_outputs(run_dir, report, ctx, log)

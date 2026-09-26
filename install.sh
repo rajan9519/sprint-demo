@@ -3,13 +3,13 @@
 # sprint-report installer. Everything it does, in full:
 #
 #   1. checks python3 >= 3.9 exists, and warns if `git` or `claude` are missing
-#   2. creates ~/.local/bin and ~/.claude/skills if they do not exist
-#   3. makes TWO symlinks pointing back into this folder:
+#   2. creates ~/.local/bin and (unless --cli-only) ~/.claude/skills
+#   3. makes one or two symlinks pointing back into this folder:
 #        ~/.local/bin/sprint-report        -> <this folder>/sprint_report.py
 #        ~/.claude/skills/sprint-report    -> <this folder>/skills/sprint-report
 #   4. marks sprint_report.py executable
 #
-# It never downloads anything, never uses sudo, never writes outside those two
+# It never downloads anything, never uses sudo, never writes outside those
 # paths, and refuses to replace a file it did not create. Run with --dry-run to
 # see the exact commands first, or --uninstall to remove the two symlinks.
 #
@@ -23,12 +23,14 @@ SKILL="$SKILL_DIR/sprint-report"
 DRY=0
 FORCE=0
 MODE=install
+CLI_ONLY=0
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run)   DRY=1 ;;
     --force)     FORCE=1 ;;
     --uninstall) MODE=uninstall ;;
+    --cli-only) CLI_ONLY=1 ;;
     -h|--help)   sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *)           echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
@@ -64,7 +66,9 @@ points_here() {
 
 if [ "$MODE" = uninstall ]; then
   echo "uninstalling (reports under ~/sprint-reports are left alone):"
-  for path in "$BIN" "$SKILL"; do
+  paths=("$BIN")
+  [ "$CLI_ONLY" = "1" ] || paths+=("$SKILL")
+  for path in "${paths[@]}"; do
     if points_here "$path"; then
       run rm -f "$path"
     elif [ -e "$path" ] || [ -L "$path" ]; then
@@ -86,7 +90,10 @@ for required in sprint_report.py sprintreport/__init__.py skills/sprint-report/S
 done
 
 command -v git >/dev/null 2>&1 || echo "warning: git not found; reports will have no commit history"
-command -v claude >/dev/null 2>&1 || echo "warning: the 'claude' CLI is not on PATH; install Claude Code and sign in before generating a report"
+if [ "$CLI_ONLY" != "1" ]; then
+  command -v claude >/dev/null 2>&1 || echo "warning: the 'claude' CLI is not on PATH; Claude reports require Claude Code or --llm codex"
+fi
+command -v codex >/dev/null 2>&1 || echo "warning: the 'codex' CLI is not on PATH; Codex reports require Codex or --llm claude"
 
 # --- install ----------------------------------------------------------------
 link() {  # link <source> <destination>
@@ -110,16 +117,19 @@ link() {  # link <source> <destination>
 
 echo "installing sprint-report from $REPO"
 if [ "$DRY" = "1" ]; then echo "(dry run: nothing below is actually executed)"; fi
-run mkdir -p "$BIN_DIR" "$SKILL_DIR"
+run mkdir -p "$BIN_DIR"
+[ "$CLI_ONLY" = "1" ] || run mkdir -p "$SKILL_DIR"
 link "$REPO/sprint_report.py" "$BIN"
-link "$REPO/skills/sprint-report" "$SKILL"
+[ "$CLI_ONLY" = "1" ] || link "$REPO/skills/sprint-report" "$SKILL"
 run chmod +x "$REPO/sprint_report.py"
 
 echo
 echo "installed:"
 echo "  command  $BIN"
-echo "  skill    $SKILL      (type /sprint-report inside Claude Code)"
-echo "keep this folder where it is: both links point back into it."
+if [ "$CLI_ONLY" != "1" ]; then
+  echo "  skill    $SKILL      (type /sprint-report inside Claude Code)"
+fi
+echo "keep this folder where it is: installed links point back into it."
 case ":${PATH:-}:" in
   *":$BIN_DIR:"*) ;;
   *) echo

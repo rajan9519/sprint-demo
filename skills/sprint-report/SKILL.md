@@ -1,6 +1,6 @@
 ---
 name: sprint-report
-description: Generate a sprint demo report from every local Claude Code session (terminal CLI, Claude desktop app, VS Code) plus git commits in a date window. Use when the user asks for a sprint report, sprint demo summary, "what did I work on since <date>", or runs /sprint-report <since> [until].
+description: Generate a sprint demo report from local Claude Code or Codex sessions plus git commits in a date window. Use when the user asks for a sprint report, sprint demo summary, "what did I work on since <date>", or runs /sprint-report <since> [until].
 argument-hint: "<since YYYY-MM-DD> [until YYYY-MM-DD] [merged-into <branch>] [--project SUBSTR]"
 ---
 
@@ -33,13 +33,17 @@ report, so nothing is hidden. Never invent a branch name.
    (installed as a plugin), or `sprint-report` (installed via `install.sh`). Confirm with `--version`.
    If neither works, tell the user to clone the sprint-report repo and run its `install.sh`.
 
-2. Run it. Expect 3 to 15 minutes: one `claude -p` call per session (haiku) plus one synthesis call
-   (sonnet). Use a long Bash timeout (600000 ms) or run it in the background and poll the log.
+2. Run it. Expect several minutes: one model call per session plus one synthesis call.
+   Use a long Bash timeout (600000 ms) or run it in the background and poll the log.
    Never run two instances at once.
 
    ```bash
    <generator> --since <since> [--until <until>] [--integration-branch <branch>] [passthrough]
    ```
+
+   When the user requests Codex sessions, add `--source codex`. For both agents, use
+   `--source all`. To summarize with the current Claude login, add `--llm claude`;
+   otherwise the command selects the available CLI automatically.
 
    It prints the output directory, by default `~/sprint-reports/sprint_<since>_<until>/`, holding
    `report.md`, `report.html` (standalone), `report.artifact.html` (fragment for the Artifact tool)
@@ -54,13 +58,13 @@ report, so nothing is hidden. Never invent a branch name.
 
 ## Notes
 
-- Sessions come from `~/.claude/projects/**.jsonl`. Terminal, desktop app and IDE sessions all
-  live there, so nothing needs exporting.
+- Claude sessions come from `~/.claude/projects/**.jsonl`; Codex sessions come from
+  `~/.codex/sessions/**/*.jsonl`. Nothing needs exporting.
 - A branch counts as done when its tip is contained in an integration branch, or when a
   pull-request merge in the window pulled it in. Session text never promotes unmerged work to done.
-- Model defaults are deliberately cheap: haiku per session, sonnet for synthesis. Opus and
-  Fable-class models are refused unless `--allow-expensive` is passed. Do not add that flag on
-  your own initiative.
+- Claude model defaults are haiku per session and sonnet for synthesis. Codex uses its
+  configured model. Opus and Fable-class Claude models are refused unless
+  `--allow-expensive` is passed. Do not add that flag on your own initiative.
 - Per-session summaries are cached under `<out>/.cache/`, so re-running later in the sprint only
   summarizes new sessions. `--refresh` redoes them.
 - `--no-llm` collects digests and metrics only (seconds, free). `--rerender <data.json>` re-renders

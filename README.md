@@ -1,15 +1,16 @@
 # sprint-report
 
-Turn everything you did with Claude Code during a sprint into a demo-ready report.
+Turn your Codex and Claude Code sessions during a sprint into a demo-ready report.
 
-It reads the local transcripts of **every** Claude Code session in a date window (terminal CLI,
-Claude desktop app and VS Code all write to the same store), pulls your git commits, branches and
-merged PRs from the repos those sessions touched, asks Claude to summarize each session and then
-to synthesize one sprint report, and renders it as Markdown and a self-contained HTML page.
+It reads local Codex and/or Claude Code transcripts in a date window, pulls git work from
+the repos those sessions touched, summarizes each session, and renders one Markdown and
+HTML sprint report.
 
 ```bash
 sprint-report --since 2026-09-01                  # until today
 sprint-report --since 2026-09-01 --until 2026-09-12 --open
+sprint-report --since 2026-09-01 --source codex
+sprint-report --since 2026-09-01 --source all
 ```
 
 Inside any Claude Code session:
@@ -20,15 +21,15 @@ Inside any Claude Code session:
 
 ## Install (for you and your team)
 
-Everything runs locally against your own `~/.claude` transcripts and your own `claude` login, so
-each teammate installs it once on their machine. Two ways:
+The command reads your local transcripts and uses your existing CLI login, so each
+teammate installs it once on their machine. For Claude Code, two ways:
 
 **A. From the zip** (what teammates get today). Build it with `git archive --format=zip
 --prefix=sprint-report/ -o sprint-report-<version>.zip HEAD`, which packs tracked files only, so no
 reports or caches ride along. They unzip somewhere permanent and run the installer:
 
 ```bash
-mkdir -p ~/tools && cd ~/tools && unzip ~/Downloads/sprint-report-0.2.0.zip && cd sprint-report
+mkdir -p ~/tools && cd ~/tools && unzip ~/Downloads/sprint-report-0.3.0.zip && cd sprint-report
 ./install.sh --dry-run     # optional: prints every command, changes nothing
 ./install.sh
 ```
@@ -36,7 +37,7 @@ mkdir -p ~/tools && cd ~/tools && unzip ~/Downloads/sprint-report-0.2.0.zip && c
 Or they skip installing and point Claude Code at the folder, or at the zip itself, for one session:
 
 ```bash
-claude --plugin-dir ~/Downloads/sprint-report-0.2.0.zip
+claude --plugin-dir ~/Downloads/sprint-report-0.3.0.zip
 ```
 
 `INSTALL.md` in the zip is the teammate-facing version of all this. `install.sh` makes exactly two
@@ -55,9 +56,15 @@ claude plugin install sprint-report@sprint-tools
 `~/.claude/skills/sprint-report`. `install.sh --uninstall` removes both. Nothing else is written
 outside the repo except reports in `~/sprint-reports/`.
 
-Requirements: macOS or Linux, Python 3.9+ (standard library only), `git`, and the `claude` CLI
-logged in. The tool never handles API keys: it runs under your Claude Code login, and an
-`ANTHROPIC_API_KEY` in your shell is deliberately not passed through to it.
+Requirements: macOS or Linux, Python 3.9+ (standard library only), `git`, and a logged-in
+`claude` or `codex` CLI. The tool never handles API keys; it uses the selected CLI login.
+
+### Codex-only machine
+
+Run `./install.sh --cli-only` to install the command without a Claude skill. To use it
+inside Codex, add this repository's `codex/` folder as a local marketplace with
+`codex plugin marketplace add /path/to/sprint-report/codex`, then install **Sprint Report**
+from the Codex plugin browser. The plugin runs the same command.
 
 ## What the report contains
 
@@ -77,12 +84,13 @@ logged in. The tool never handles API keys: it runs under your Claude Code login
 ~/.claude/projects/**/*.jsonl ─┐
 ~/.claude/plans/*.md           ├─► collect ─► digest per session (redacted, truncated)
 desktop titles (Library/…)     ┘                     │
+~/.codex/sessions/**/*.jsonl ──────► Codex collector ─┘
 git log / for-each-ref ────────────────► git work    │
                                                      ▼
-                                   map: claude -p (haiku) × N sessions ──► cached JSON summaries
+                                   map: selected CLI × N sessions ──► cached JSON summaries
                                                      │
                                                      ▼
-                                   reduce: claude -p (sonnet) × 1 ────────► report JSON
+                                   reduce: selected CLI × 1 ────────► report JSON
                                                      │
                                                      ▼
                                    render ─► report.md · report.html · report.artifact.html · data.json
@@ -99,7 +107,7 @@ git log / for-each-ref ────────────────► git w
    collects your commits across all branches in the window (`--author` defaults to the repo's
    `user.email`), branches with commits, PR numbers from merge commit subjects, and the merge
    facts described below.
-3. **Map.** One `claude -p` call per session returns a structured summary (work items, status,
+3. **Map.** One selected CLI call per session returns a structured summary (work items, status,
    problems, decisions, follow-ups). Results are cached in `<out>/.cache/sessions/` keyed by the
    session file's size and mtime, so re-running later in the sprint only processes new sessions.
    Sessions above ~90k characters are split into parts and merged.
@@ -145,22 +153,25 @@ the rule is never hidden. The exact facts the model received are in `synthesis_i
 
 ## Models and cost
 
-Defaults are deliberately cheap: **haiku** for the per-session summaries and **sonnet** for the
-final synthesis. A two-week sprint with ~35 sessions costs on the order of a dollar and takes
-3 to 8 minutes. Opus/Fable-class models are refused unless you pass `--allow-expensive`.
+With Claude, defaults are **haiku** per session and **sonnet** for synthesis. With Codex,
+the CLI's configured model is used. Model usage and time depend on the selected provider.
+Opus/Fable-class Claude models are refused unless you pass `--allow-expensive`.
 
 ## Options
 
 | Flag | Default | Purpose |
 |---|---|---|
 | `--since`, `--until` | until = today | Window, inclusive, in local time |
+| `--source` | auto | Session source: `claude`, `codex`, or `all` |
+| `--llm` | auto | Summarizer CLI: prefer Claude for Claude-only reports and Codex otherwise; fall back to the installed CLI |
+| `--codex-dir` | `$CODEX_HOME` or `~/.codex` | Codex session store |
 | `--out DIR` | `$SPRINT_REPORT_OUT` or `~/sprint-reports` | Output root; a `sprint_<since>_<until>/` folder is created inside |
 | `--project SUBSTR` / `--exclude-project SUBSTR` | | Filter sessions by working directory (repeatable) |
 | `--repo PATH` | | Extra git repos to scan (repeatable) |
 | `--integration-branch BRANCH` | mainline/release refs | Where finished work lands; defines "done" (repeatable) |
 | `--author EMAIL` | repo `user.email` | Git author filter |
 | `--name`, `--title` | derived | Engineer display name, report title override |
-| `--map-model` / `--reduce-model` | `haiku` / `sonnet` | Models for per-session and final calls |
+| `--map-model` / `--reduce-model` | CLI defaults | Models for per-session and final calls |
 | `--map-effort` / `--reduce-effort` | `medium` / `high` | Effort levels |
 | `--allow-expensive` | off | Permit opus/fable-class models |
 | `--parallel N` | 4 | Concurrent per-session calls |
@@ -188,7 +199,8 @@ final synthesis. A two-week sprint with ~35 sessions costs on the order of a dol
 
 Files are created with owner-only permissions because they contain excerpts of your
 conversations. Share `report.md`/`report.html`; keep `digests/`, `synthesis_input.txt` and
-`data.json` to yourself.
+`data.json` to yourself. Redacted digests go to the selected model service; raw transcripts
+and tool output are not sent.
 
 ## Typical sprint flow
 

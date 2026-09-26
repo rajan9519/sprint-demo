@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Tuple
 
-PROMPT_VERSION = "5"
+PROMPT_VERSION = "6"
 
 _STR = {"type": "string"}
 _STR_LIST = {"type": "array", "items": {"type": "string"}}
@@ -55,7 +55,7 @@ SESSION_SCHEMA: Dict[str, Any] = {
                  "problems", "decisions", "followups", "tickets", "tags", "is_noise"],
 }
 
-SESSION_SYSTEM = """You are an engineering work analyst. You will receive a digest of ONE Claude Code
+SESSION_SYSTEM = """You are an engineering work analyst. You will receive a digest of ONE coding-agent
 coding session: metadata, the files it edited, the git/build commands it ran, and the
 (truncated) conversation between the engineer (U) and the assistant (A).
 
@@ -154,7 +154,7 @@ You receive, for one engineer and one sprint window:
   1. computed metrics (sessions, prompts, active hours, commits, tickets),
   2. the engineer's git commits, active branches and merged pull requests,
   3. plan documents written during the sprint,
-  4. structured summaries of every Claude Code session in the window (chronological).
+  4. structured summaries of every coding-agent session in the window (chronological).
 
 Produce the content of a polished sprint demo report as JSON matching the schema.
 
@@ -191,7 +191,7 @@ Guidelines:
 
 
 def session_prompt(digest_text: str, part: Tuple[int, int] = None) -> str:
-    head = "Analyze the following Claude Code session digest and return the structured summary."
+    head = "Analyze the following coding-agent session digest and return the structured summary."
     if part:
         head += f" This is PART {part[0]} of {part[1]} of a long session."
     return f"{head}\n\n<session_digest>\n{digest_text}\n</session_digest>"

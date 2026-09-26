@@ -1,8 +1,7 @@
-"""sprintreport - build a sprint demo report from local Claude Code session transcripts.
+"""sprintreport - build a sprint demo report from local coding-agent sessions.
 
-Zero third-party dependencies. All LLM work is delegated to the locally installed
-`claude` CLI (non-interactive `claude -p`), so the tool inherits whatever
-authentication the user already has and never handles API keys itself.
+Zero third-party dependencies. LLM work uses the user's installed Claude or Codex
+CLI and its existing login; the tool does not handle API keys.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
